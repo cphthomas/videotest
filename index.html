@@ -544,10 +544,10 @@
       <label>🔊 Vol</label>
       <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1" oninput="setVolume(this.value)">
       <div class="speed-btns">
-        <button class="speed-btn" onclick="setSpeed(0.75)">0.75×</button>
-        <button class="speed-btn active" id="sp1" onclick="setSpeed(1)">1×</button>
-        <button class="speed-btn" onclick="setSpeed(1.5)">1.5×</button>
-        <button class="speed-btn" onclick="setSpeed(2)">2×</button>
+        <button class="speed-btn" onclick="setSpeed(0.75,this)">0.75×</button>
+        <button class="speed-btn active" id="sp1" onclick="setSpeed(1,this)">1×</button>
+        <button class="speed-btn" onclick="setSpeed(1.5,this)">1.5×</button>
+        <button class="speed-btn" onclick="setSpeed(2,this)">2×</button>
       </div>
     </div>
     <!-- Quiz score tracker -->
@@ -756,21 +756,42 @@ const ANNOTATIONS = [
 ];
 let annotationTimer = null;
 
-/* ─── SDK player proxy (set after SDK ready) ─── */
-let _player = null;
+/* ─── SDK player proxy ─── */
+let _player   = null;
+let _duration = 0;       // cached from loadedmetadata — avoids the bogus "1" default
 function p() { return _player; }
 
-/* ─── INIT after SDK loads ─── */
-window.addEventListener('load', () => {
+function initSDK() {
   const iframe = document.getElementById('player');
-  if (!iframe || !window.Stream) return;
+  if (_player || !iframe || !window.Stream) return;
   _player = Stream(iframe);
-  const player = _player;
+  setupPlayerEvents(_player);
+}
+
+/* iframe fires 'load' when the Cloudflare player page is ready */
+document.addEventListener('DOMContentLoaded', () => {
+  const iframe = document.getElementById('player');
+  iframe.addEventListener('load', initSDK);
+});
+/* fallback: window load (in case iframe was cached and fires before DOMContentLoaded) */
+window.addEventListener('load', initSDK);
+
+function setupPlayerEvents(player) {
+
+  /* ── cache real duration once metadata arrives ── */
+  player.addEventListener('loadedmetadata', () => {
+    _duration = player.duration;
+    addLog('prop', 'duration = ' + fmt(_duration));
+  });
+  player.addEventListener('durationchange', () => {
+    if (player.duration > 0) _duration = player.duration;
+  });
 
   /* ── timeupdate: progress bar + chapter highlight + CTA triggers + annotations ── */
   player.addEventListener('timeupdate', () => {
     const ct  = player.currentTime || 0;
-    const dur = player.duration    || 1;
+    const dur = _duration > 0 ? _duration : player.duration;
+    if (!dur || dur <= 0) return;          // not ready yet — skip
     const pct = ct / dur;
 
     // progress bar
@@ -820,17 +841,14 @@ window.addEventListener('load', () => {
   });
 
   /* ── other events ── */
-  ['seeking','seeked','loadedmetadata','error','volumechange'].forEach(ev => {
+  ['seeking','seeked','error','volumechange'].forEach(ev => {
     player.addEventListener(ev, () => addLog('ev', ev));
-  });
-  player.addEventListener('loadedmetadata', () => {
-    addLog('prop', 'duration = ' + fmt(player.duration));
   });
 
   // restore rating
   const saved = localStorage.getItem('cf_demo_rating');
   if (saved) highlightStars(parseInt(saved));
-});
+}
 
 /* ─── OVERLAY HELPERS ─── */
 function showOverlay(id) {
@@ -911,21 +929,21 @@ function seekTo(sec) {
 /* ─── PROGRESS BAR CLICK ─── */
 function seekFromBar(e) {
   const player = p();
-  if (!player) return;
+  if (!player || !_duration) return;
   const wrap = document.getElementById('progressWrap');
   const rect = wrap.getBoundingClientRect();
   const pct  = (e.clientX - rect.left) / rect.width;
-  player.currentTime = pct * (player.duration || 0);
+  player.currentTime = pct * _duration;
 }
 
 /* ─── VOLUME ─── */
 function setVolume(val) { if (p()) p().volume = parseFloat(val); }
 
 /* ─── SPEED ─── */
-function setSpeed(rate) {
+function setSpeed(rate, btn) {
   if (p()) p().playbackRate = rate;
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
-  event.target.classList.add('active');
+  if (btn) btn.classList.add('active');
 }
 
 /* ─── JS API LOG ─── */
@@ -938,6 +956,7 @@ function addLog(type, msg) {
   while (log.children.length > 30) log.removeChild(log.lastChild);
 }
 function logProp(prop) {
+  if (!p()) { addLog('prop', 'player not ready yet'); return; }
   const val = p()[prop];
   addLog('prop', prop + ' = ' + JSON.stringify(val));
 }
