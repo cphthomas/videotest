@@ -427,15 +427,14 @@
   <!-- VIDEO PLAYER + OVERLAYS -->
   <div class="player-shell" id="playerShell">
 
-    <!-- Cloudflare Stream player (web component) -->
-    <stream
+    <!-- Cloudflare Stream player (iframe + SDK) -->
+    <iframe
       id="player"
-      src="241706818b35416cdd0ddd7f8c0a237a"
-      controls
-      preload="metadata"
-      primaryColor="%23f6821f"
-      style="width:100%;height:100%;"
-    ></stream>
+      src="https://customer-bbja5kf9deqpcm9n.cloudflarestream.com/241706818b35416cdd0ddd7f8c0a237a/iframe?controls=true&primaryColor=%23f6821f&preload=metadata"
+      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
+      allowfullscreen="true"
+      style="border:none;width:100%;height:100%;display:block;"
+    ></iframe>
 
     <!-- 1. QUIZ OVERLAY (yes / no) -->
     <div class="overlay overlay-quiz" id="overlayQuiz1">
@@ -726,13 +725,12 @@
 </footer>
 
 <!-- Cloudflare Stream SDK -->
-<script data-cfasync="false" defer type="text/javascript"
-  src="https://embed.cloudflarestream.com/embed/sdk.latest.js"></script>
+<script src="https://embed.cloudflarestream.com/embed/sdk.latest.js"></script>
 
 <script>
 /* ─── QUIZ STATE ─── */
-const answers   = {};            // { q1: true/false, q2: true/false }
-const triggered = new Set();     // which overlays have fired
+const answers   = {};
+const triggered = new Set();
 
 /* ─── CHAPTER DEFINITIONS ─── */
 const chapters = [
@@ -743,15 +741,12 @@ const chapters = [
   { id: 'ch4', start: 120, label: 'Conclusion',  icon: '🏁', text: 'Wrap-up and next steps' },
 ];
 
-/* ─── CTA TRIGGER POINTS (as % of total duration) ─── */
-// quiz1 at 25%, cta-link at 50%, quiz2 at 75%
 const CTA_TRIGGERS = [
   { pct: 0.25, id: 'overlayQuiz1' },
   { pct: 0.50, id: 'overlayCta'   },
   { pct: 0.75, id: 'overlayQuiz2' },
 ];
 
-/* ─── ANNOTATION TRIGGER POINTS (seconds) ─── */
 const ANNOTATIONS = [
   { at: 5,   label: 'Intro',      icon: '🎬', text: 'Introduction to Cloudflare Stream' },
   { at: 32,  label: 'Section 1',  icon: '📦', text: 'Upload &amp; storage options' },
@@ -761,13 +756,16 @@ const ANNOTATIONS = [
 ];
 let annotationTimer = null;
 
-/* ─── HELPER: get player ─── */
-function p() { return document.getElementById('player'); }
+/* ─── SDK player proxy (set after SDK ready) ─── */
+let _player = null;
+function p() { return _player; }
 
-/* ─── INIT AFTER SDK LOADS ─── */
+/* ─── INIT after SDK loads ─── */
 window.addEventListener('load', () => {
-  const player = p();
-  if (!player) return;
+  const iframe = document.getElementById('player');
+  if (!iframe || !window.Stream) return;
+  _player = Stream(iframe);
+  const player = _player;
 
   /* ── timeupdate: progress bar + chapter highlight + CTA triggers + annotations ── */
   player.addEventListener('timeupdate', () => {
@@ -907,25 +905,25 @@ function showAnnotation(icon, label, text) {
 /* ─── CHAPTER SEEK ─── */
 function seekTo(sec) {
   const player = p();
-  player.currentTime = sec;
-  // re-enable triggers for CTAs after seek (optional: remove to keep them dismissed)
+  if (player) player.currentTime = sec;
 }
 
 /* ─── PROGRESS BAR CLICK ─── */
 function seekFromBar(e) {
-  const wrap  = document.getElementById('progressWrap');
-  const rect  = wrap.getBoundingClientRect();
-  const pct   = (e.clientX - rect.left) / rect.width;
   const player = p();
+  if (!player) return;
+  const wrap = document.getElementById('progressWrap');
+  const rect = wrap.getBoundingClientRect();
+  const pct  = (e.clientX - rect.left) / rect.width;
   player.currentTime = pct * (player.duration || 0);
 }
 
 /* ─── VOLUME ─── */
-function setVolume(val) { p().volume = parseFloat(val); }
+function setVolume(val) { if (p()) p().volume = parseFloat(val); }
 
 /* ─── SPEED ─── */
 function setSpeed(rate) {
-  p().playbackRate = rate;
+  if (p()) p().playbackRate = rate;
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
   event.target.classList.add('active');
 }
