@@ -1,0 +1,977 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Interactive Video — Cloudflare Stream Demo</title>
+  <style>
+    :root {
+      --bg:        #07070d;
+      --surface:   #111118;
+      --surface2:  #1a1a24;
+      --border:    #2c2c3e;
+      --accent:    #f6821f;
+      --accent2:   #fbad41;
+      --text:      #e8e8f2;
+      --muted:     #7a7a99;
+      --ok:        #22c55e;
+      --bad:       #ef4444;
+      --info:      #60a5fa;
+      --radius:    14px;
+    }
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      line-height: 1.6;
+    }
+
+    /* ── TOP BAR ── */
+    header {
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 18px 40px;
+      border-bottom: 1px solid var(--border);
+      background: rgba(17,17,24,.9);
+      backdrop-filter: blur(12px);
+      position: sticky; top: 0; z-index: 100;
+    }
+    .logo { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.1rem; }
+    .logo svg { width: 32px; height: 32px; }
+    .badge {
+      font-size: .7rem; padding: 2px 10px; border-radius: 999px;
+      background: var(--accent); color: #fff; font-weight: 700; letter-spacing: .05em;
+    }
+
+    /* ── HERO ── */
+    .hero {
+      text-align: center;
+      padding: 64px 20px 48px;
+      background: radial-gradient(ellipse 80% 50% at 50% -10%, rgba(246,130,31,.18) 0%, transparent 70%);
+    }
+    .hero h1 {
+      font-size: clamp(2rem, 5vw, 3.4rem);
+      font-weight: 800;
+      letter-spacing: -.02em;
+      background: linear-gradient(135deg, #fff 40%, var(--accent2));
+      -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+    .hero p { color: var(--muted); font-size: 1.1rem; margin-top: 12px; max-width: 600px; margin-inline: auto; }
+
+    /* ── LAYOUT ── */
+    main { max-width: 1120px; margin: 0 auto; padding: 0 20px 80px; }
+
+    /* ── VIDEO WRAPPER ── */
+    .player-shell {
+      position: relative;
+      border-radius: var(--radius);
+      overflow: hidden;
+      box-shadow: 0 40px 100px rgba(0,0,0,.7), 0 0 0 1px var(--border);
+      background: #000;
+      aspect-ratio: 16/9;
+      margin-top: -10px;
+    }
+    .player-shell stream,
+    .player-shell iframe {
+      width: 100%; height: 100%; display: block;
+      border: none;
+    }
+
+    /* ── GENERIC OVERLAY BASE ── */
+    .overlay {
+      position: absolute; inset: 0;
+      display: flex; flex-direction: column;
+      align-items: center; justify-content: center;
+      padding: 24px;
+      pointer-events: none;
+      opacity: 0;
+      transition: opacity .35s ease;
+      z-index: 20;
+    }
+    .overlay.visible { opacity: 1; pointer-events: all; }
+
+    /* ── QUIZ OVERLAY ── */
+    .overlay-quiz {
+      background: linear-gradient(160deg, rgba(10,10,20,.92), rgba(20,15,30,.97));
+      backdrop-filter: blur(4px);
+    }
+    .overlay-quiz .ov-badge {
+      font-size: .72rem; letter-spacing: .12em; text-transform: uppercase;
+      color: var(--accent); font-weight: 700; margin-bottom: 14px;
+    }
+    .overlay-quiz h2 {
+      font-size: clamp(1.1rem, 3vw, 1.65rem);
+      font-weight: 800; text-align: center; max-width: 560px;
+      margin-bottom: 28px;
+    }
+    .quiz-btns { display: flex; gap: 16px; flex-wrap: wrap; justify-content: center; }
+    .quiz-btns button {
+      padding: 14px 40px; border-radius: 999px; border: none;
+      font-size: 1rem; font-weight: 700; cursor: pointer;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .quiz-btns button:hover { transform: translateY(-2px); box-shadow: 0 8px 24px rgba(0,0,0,.4); }
+    .btn-yes { background: var(--ok); color: #fff; }
+    .btn-no  { background: var(--bad); color: #fff; }
+    .quiz-feedback {
+      margin-top: 20px; font-size: .95rem; color: var(--accent2);
+      font-weight: 600; opacity: 0; transition: opacity .3s;
+      text-align: center;
+    }
+    .quiz-feedback.show { opacity: 1; }
+
+    /* ── CTA LINK OVERLAY ── */
+    .overlay-cta {
+      background: linear-gradient(160deg, rgba(10,10,20,.88), rgba(15,12,25,.95));
+      backdrop-filter: blur(4px);
+    }
+    .overlay-cta .ov-badge { font-size: .72rem; letter-spacing: .12em; text-transform: uppercase; color: var(--info); font-weight: 700; margin-bottom: 14px; }
+    .overlay-cta h2 { font-size: clamp(1.1rem, 3vw, 1.6rem); font-weight: 800; text-align: center; max-width: 540px; margin-bottom: 8px; }
+    .overlay-cta p { color: var(--muted); text-align: center; max-width: 460px; margin-bottom: 26px; font-size: .95rem; }
+    .cta-btns { display: flex; gap: 12px; flex-wrap: wrap; justify-content: center; }
+    .btn-primary {
+      padding: 13px 34px; border-radius: 999px; border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font-size: 1rem; font-weight: 700; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 7px;
+      transition: transform .15s, box-shadow .15s;
+    }
+    .btn-primary:hover { transform: translateY(-2px); box-shadow: 0 10px 30px rgba(246,130,31,.45); }
+    .btn-ghost {
+      padding: 12px 28px; border-radius: 999px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--text); font-size: .95rem; font-weight: 600; cursor: pointer;
+      text-decoration: none; display: inline-flex; align-items: center; gap: 7px;
+      transition: border-color .15s, background .15s;
+    }
+    .btn-ghost:hover { border-color: var(--accent); background: rgba(246,130,31,.08); }
+
+    /* ── PAUSE OVERLAY ── */
+    .overlay-pause {
+      background: rgba(7,7,13,.72);
+      backdrop-filter: blur(8px);
+      justify-content: flex-end; padding-bottom: 32px;
+    }
+    .pause-pill {
+      display: flex; align-items: center; gap: 16px;
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: 999px; padding: 12px 22px;
+    }
+    .pause-pill span { font-size: .9rem; color: var(--muted); }
+    .pause-pill a {
+      font-size: .9rem; font-weight: 700; color: var(--accent);
+      text-decoration: none; border-bottom: 1px solid transparent;
+      transition: border-color .15s;
+    }
+    .pause-pill a:hover { border-color: var(--accent); }
+    .btn-resume {
+      padding: 8px 22px; border-radius: 999px;
+      background: var(--accent); color: #fff;
+      border: none; font-size: .9rem; font-weight: 700; cursor: pointer;
+    }
+
+    /* ── END SCREEN OVERLAY ── */
+    .overlay-end {
+      background: linear-gradient(160deg, rgba(7,7,13,.97), rgba(15,10,24,.99));
+      backdrop-filter: blur(6px);
+      flex-direction: column; gap: 0;
+    }
+    .end-star { font-size: 2.6rem; margin-bottom: 12px; }
+    .overlay-end h2 { font-size: clamp(1.4rem, 3.5vw, 2rem); font-weight: 800; margin-bottom: 8px; text-align: center; }
+    .overlay-end p { color: var(--muted); text-align: center; max-width: 480px; margin-bottom: 32px; font-size: .95rem; }
+    .end-grid {
+      display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px; width: 100%; max-width: 700px;
+    }
+    .end-card {
+      background: var(--surface2); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 20px 18px;
+      text-align: center; cursor: pointer; text-decoration: none; color: var(--text);
+      transition: border-color .2s, transform .15s, box-shadow .2s;
+      display: flex; flex-direction: column; align-items: center; gap: 10px;
+    }
+    .end-card:hover {
+      border-color: var(--accent); transform: translateY(-3px);
+      box-shadow: 0 12px 30px rgba(246,130,31,.2);
+    }
+    .end-card .ec-icon { font-size: 1.8rem; }
+    .end-card .ec-label { font-size: .85rem; font-weight: 700; }
+    .end-card .ec-desc { font-size: .78rem; color: var(--muted); }
+    .btn-replay {
+      margin-top: 20px; padding: 11px 30px; border-radius: 999px;
+      border: 1px solid var(--border); background: transparent;
+      color: var(--muted); font-size: .9rem; font-weight: 600; cursor: pointer;
+      transition: color .15s, border-color .15s;
+    }
+    .btn-replay:hover { color: var(--text); border-color: var(--muted); }
+
+    /* ── CHAPTER ANNOTATION (time-based popup) ── */
+    .overlay-annotation {
+      background: transparent;
+      align-items: flex-start; justify-content: flex-start;
+      padding: 16px;
+      pointer-events: none;
+    }
+    .annotation-chip {
+      display: inline-flex; align-items: center; gap: 8px;
+      background: rgba(17,17,24,.9); border: 1px solid var(--border);
+      border-left: 3px solid var(--accent);
+      backdrop-filter: blur(8px);
+      border-radius: 8px; padding: 10px 16px;
+      font-size: .85rem; color: var(--text);
+      max-width: 320px;
+      transform: translateY(-6px);
+      transition: transform .35s ease, opacity .35s ease;
+    }
+    .overlay.visible .annotation-chip { transform: translateY(0); }
+    .annotation-chip .chip-icon { font-size: 1.1rem; flex-shrink: 0; }
+    .chip-text strong { display: block; font-size: .8rem; color: var(--accent); font-weight: 700; letter-spacing: .05em; text-transform: uppercase; }
+
+    /* ── PROGRESS / CHAPTER BAR ── */
+    .player-controls {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-top: none;
+      border-radius: 0 0 var(--radius) var(--radius);
+      padding: 14px 20px 16px;
+    }
+    .chapter-bar { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 10px; }
+    .chapter-btn {
+      padding: 5px 14px; border-radius: 999px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: .78rem; font-weight: 600;
+      cursor: pointer; transition: all .15s;
+    }
+    .chapter-btn:hover, .chapter-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .time-row { display: flex; align-items: center; gap: 12px; }
+    .progress-wrap {
+      flex: 1; height: 4px; background: var(--border); border-radius: 2px;
+      cursor: pointer; position: relative;
+    }
+    .progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 2px; width: 0%; transition: width .2s; }
+    .progress-marker {
+      position: absolute; top: 50%; width: 10px; height: 10px;
+      background: var(--accent2); border-radius: 50%; transform: translate(-50%,-50%);
+      left: 0%; transition: left .2s;
+    }
+    .time-disp { font-size: .8rem; color: var(--muted); font-variant-numeric: tabular-nums; min-width: 90px; text-align: right; }
+    .vol-row {
+      display: flex; align-items: center; gap: 10px; margin-top: 10px;
+    }
+    .vol-row label { font-size: .78rem; color: var(--muted); flex-shrink: 0; }
+    input[type=range] {
+      -webkit-appearance: none; appearance: none;
+      height: 4px; border-radius: 2px; background: var(--border);
+      outline: none; flex: 1; max-width: 140px;
+    }
+    input[type=range]::-webkit-slider-thumb {
+      -webkit-appearance: none; width: 14px; height: 14px;
+      border-radius: 50%; background: var(--accent); cursor: pointer;
+    }
+    .speed-btns { display: flex; gap: 5px; margin-left: auto; }
+    .speed-btn {
+      padding: 4px 10px; border-radius: 999px; border: 1px solid var(--border);
+      background: transparent; color: var(--muted); font-size: .75rem; font-weight: 600;
+      cursor: pointer; transition: all .12s;
+    }
+    .speed-btn:hover, .speed-btn.active { background: var(--surface2); border-color: var(--muted); color: var(--text); }
+
+    /* ── QUIZ SCORE TRACKER ── */
+    .score-bar {
+      display: flex; align-items: center; gap: 14px;
+      margin-top: 14px; padding: 12px 18px;
+      background: var(--surface2); border: 1px solid var(--border); border-radius: 10px;
+      font-size: .85rem;
+    }
+    .score-bar span { color: var(--muted); }
+    .score-bar strong { color: var(--text); }
+    .score-pills { display: flex; gap: 5px; margin-left: auto; }
+    .score-pill {
+      width: 10px; height: 10px; border-radius: 50%;
+      background: var(--border);
+    }
+    .score-pill.correct { background: var(--ok); }
+    .score-pill.wrong   { background: var(--bad); }
+
+    /* ── FEATURES SECTION ── */
+    .section-title {
+      font-size: 1.6rem; font-weight: 800; margin-bottom: 6px;
+    }
+    .section-sub { color: var(--muted); margin-bottom: 32px; font-size: .95rem; }
+    .features-grid {
+      display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+      gap: 16px; margin-top: 40px;
+    }
+    .feat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 24px 22px;
+      transition: border-color .2s, transform .15s;
+    }
+    .feat-card:hover { border-color: var(--accent); transform: translateY(-2px); }
+    .feat-icon { font-size: 1.6rem; margin-bottom: 12px; }
+    .feat-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 6px; }
+    .feat-card p  { font-size: .85rem; color: var(--muted); line-height: 1.6; }
+    .feat-tag {
+      display: inline-block; margin-top: 10px;
+      font-size: .7rem; padding: 3px 10px; border-radius: 999px; font-weight: 700;
+      letter-spacing: .06em; text-transform: uppercase;
+    }
+    .tag-native  { background: rgba(34,197,94,.15);  color: var(--ok); }
+    .tag-custom  { background: rgba(96,165,250,.15);  color: var(--info); }
+    .tag-api     { background: rgba(246,130,31,.15);  color: var(--accent); }
+
+    /* ── API DEMO CONTROLS ── */
+    .api-demo {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: var(--radius); padding: 28px; margin-top: 24px;
+    }
+    .api-demo h3 { font-size: 1.05rem; font-weight: 700; margin-bottom: 16px; }
+    .api-row { display: flex; gap: 10px; flex-wrap: wrap; }
+    .api-btn {
+      padding: 9px 20px; border-radius: 8px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text);
+      font-size: .85rem; font-weight: 600; cursor: pointer; font-family: inherit;
+      transition: all .12s;
+    }
+    .api-btn:hover { border-color: var(--accent); color: var(--accent); }
+    .api-log {
+      margin-top: 14px; padding: 12px 16px;
+      background: rgba(0,0,0,.4); border: 1px solid var(--border);
+      border-radius: 8px; font-size: .8rem; color: var(--ok);
+      font-family: 'SF Mono', 'Fira Code', monospace;
+      min-height: 44px; max-height: 150px; overflow-y: auto;
+    }
+    .api-log p { margin-bottom: 3px; color: var(--muted); }
+    .api-log p.ev { color: var(--ok); }
+    .api-log p.prop { color: var(--info); }
+
+    /* ── RATING ── */
+    .rating-row {
+      display: flex; gap: 8px; align-items: center; margin-top: 20px;
+    }
+    .star-btn {
+      background: none; border: none; font-size: 1.6rem; cursor: pointer;
+      color: var(--border); transition: color .12s, transform .12s;
+      line-height: 1;
+    }
+    .star-btn:hover, .star-btn.lit { color: var(--accent2); transform: scale(1.15); }
+    .rating-label { font-size: .85rem; color: var(--muted); margin-left: 8px; }
+
+    /* ── EMAIL CTA BAND ── */
+    .cta-band {
+      margin-top: 48px; border-radius: var(--radius);
+      background: linear-gradient(135deg, rgba(246,130,31,.12), rgba(251,173,65,.06));
+      border: 1px solid rgba(246,130,31,.3);
+      padding: 40px 32px; text-align: center;
+    }
+    .cta-band h2 { font-size: 1.5rem; font-weight: 800; margin-bottom: 8px; }
+    .cta-band p  { color: var(--muted); margin-bottom: 22px; }
+    .email-form  { display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+    .email-form input {
+      padding: 12px 18px; border-radius: 999px; border: 1px solid var(--border);
+      background: var(--surface2); color: var(--text);
+      font-size: .95rem; width: 300px; outline: none;
+      transition: border-color .15s;
+    }
+    .email-form input:focus { border-color: var(--accent); }
+    .email-form button {
+      padding: 12px 28px; border-radius: 999px; border: none;
+      background: linear-gradient(135deg, var(--accent), var(--accent2));
+      color: #fff; font-size: .95rem; font-weight: 700; cursor: pointer;
+      transition: opacity .15s; white-space: nowrap;
+    }
+    .email-form button:hover { opacity: .88; }
+
+    /* ── FOOTER ── */
+    footer {
+      border-top: 1px solid var(--border); padding: 28px 40px;
+      display: flex; justify-content: space-between; align-items: center;
+      flex-wrap: wrap; gap: 12px; color: var(--muted); font-size: .82rem;
+    }
+    footer a { color: var(--muted); text-decoration: none; }
+    footer a:hover { color: var(--accent); }
+
+    @media (max-width: 600px) {
+      header { padding: 14px 18px; }
+      .hero  { padding: 48px 18px 36px; }
+      .player-controls { padding: 10px 14px; }
+      footer { padding: 20px 18px; }
+    }
+  </style>
+</head>
+<body>
+
+<!-- ───────────────── HEADER ───────────────── -->
+<header>
+  <div class="logo">
+    <svg viewBox="0 0 100 100" fill="none" xmlns="http://www.w3.org/2000/svg">
+      <rect width="100" height="100" rx="22" fill="#F6821F"/>
+      <path d="M28 68 L50 32 L72 68 Z" fill="white" opacity=".9"/>
+      <circle cx="50" cy="54" r="10" fill="white"/>
+    </svg>
+    Stream Demo
+  </div>
+  <span class="badge">Cloudflare Stream</span>
+</header>
+
+<!-- ───────────────── HERO ───────────────── -->
+<div class="hero">
+  <h1>Interactive Video Player</h1>
+  <p>Every possible call-to-action and interactive feature you can build on top of Cloudflare Stream — in one demo.</p>
+</div>
+
+<!-- ───────────────── MAIN ───────────────── -->
+<main>
+
+  <!-- VIDEO PLAYER + OVERLAYS -->
+  <div class="player-shell" id="playerShell">
+
+    <!-- Cloudflare Stream player (web component) -->
+    <stream
+      id="player"
+      src="241706818b35416cdd0ddd7f8c0a237a"
+      controls
+      preload="metadata"
+      primaryColor="%23f6821f"
+      style="width:100%;height:100%;"
+    ></stream>
+
+    <!-- 1. QUIZ OVERLAY (yes / no) -->
+    <div class="overlay overlay-quiz" id="overlayQuiz1">
+      <span class="ov-badge">Quiz — Question 1 of 2</span>
+      <h2>Did you learn something new in the first section?</h2>
+      <div class="quiz-btns">
+        <button class="btn-yes" onclick="answerQuiz('q1', true)">Yes  ✓</button>
+        <button class="btn-no"  onclick="answerQuiz('q1', false)">No  ✗</button>
+      </div>
+      <p class="quiz-feedback" id="fb1"></p>
+    </div>
+
+    <!-- 2. CTA LINK OVERLAY -->
+    <div class="overlay overlay-cta" id="overlayCta">
+      <span class="ov-badge">Related Resource</span>
+      <h2>Want to explore Cloudflare Stream in detail?</h2>
+      <p>Visit the official docs to see every parameter, API method, and pricing info.</p>
+      <div class="cta-btns">
+        <a class="btn-primary" href="https://developers.cloudflare.com/stream/" target="_blank" rel="noopener">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6"/><polyline points="15 3 21 3 21 9"/><line x1="10" y1="14" x2="21" y2="3"/></svg>
+          Open Docs
+        </a>
+        <button class="btn-ghost" onclick="dismissOverlay('overlayCta')">Continue watching</button>
+      </div>
+    </div>
+
+    <!-- 3. SECOND QUIZ OVERLAY -->
+    <div class="overlay overlay-quiz" id="overlayQuiz2">
+      <span class="ov-badge">Quiz — Question 2 of 2</span>
+      <h2>Would you use Cloudflare Stream for your next project?</h2>
+      <div class="quiz-btns">
+        <button class="btn-yes" onclick="answerQuiz('q2', true)">Yes, definitely!</button>
+        <button class="btn-no"  onclick="answerQuiz('q2', false)">Not sure yet</button>
+      </div>
+      <p class="quiz-feedback" id="fb2"></p>
+    </div>
+
+    <!-- 4. PAUSE OVERLAY (subtle pill at bottom) -->
+    <div class="overlay overlay-pause" id="overlayPause">
+      <div class="pause-pill">
+        <span>Paused · Need more context?</span>
+        <a href="https://developers.cloudflare.com/stream/" target="_blank" rel="noopener">Read the docs →</a>
+        <button class="btn-resume" onclick="resumePlayer()">Resume ▶</button>
+      </div>
+    </div>
+
+    <!-- 5. CHAPTER ANNOTATION (info chip, time-based) -->
+    <div class="overlay overlay-annotation" id="overlayAnnotation">
+      <div class="annotation-chip">
+        <span class="chip-icon">💡</span>
+        <div class="chip-text">
+          <strong id="annotationLabel">Chapter</strong>
+          <span id="annotationText">Loading…</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- 6. END SCREEN OVERLAY -->
+    <div class="overlay overlay-end" id="overlayEnd">
+      <div class="end-star">🎬</div>
+      <h2>That's a wrap!</h2>
+      <p>What would you like to do next? Choose one of the options below.</p>
+      <div class="end-grid">
+        <a class="end-card" href="https://developers.cloudflare.com/stream/" target="_blank" rel="noopener">
+          <span class="ec-icon">📖</span>
+          <span class="ec-label">Read the Docs</span>
+          <span class="ec-desc">Full Cloudflare Stream reference</span>
+        </a>
+        <a class="end-card" href="https://dash.cloudflare.com/" target="_blank" rel="noopener">
+          <span class="ec-icon">⚡</span>
+          <span class="ec-label">Dashboard</span>
+          <span class="ec-desc">Manage your videos</span>
+        </a>
+        <a class="end-card" href="https://community.cloudflare.com/" target="_blank" rel="noopener">
+          <span class="ec-icon">💬</span>
+          <span class="ec-label">Community</span>
+          <span class="ec-desc">Ask questions &amp; get help</span>
+        </a>
+        <a class="end-card" href="https://blog.cloudflare.com/" target="_blank" rel="noopener">
+          <span class="ec-icon">📰</span>
+          <span class="ec-label">Blog</span>
+          <span class="ec-desc">Latest product news</span>
+        </a>
+      </div>
+      <button class="btn-replay" onclick="replayVideo()">↩ Replay video</button>
+    </div>
+
+  </div><!-- /.player-shell -->
+
+  <!-- CHAPTER NAVIGATION + CUSTOM CONTROLS -->
+  <div class="player-controls">
+    <div class="chapter-bar" id="chapterBar">
+      <button class="chapter-btn" onclick="seekTo(0)"    id="ch0">▶ Intro</button>
+      <button class="chapter-btn" onclick="seekTo(30)"   id="ch1">Section 1</button>
+      <button class="chapter-btn" onclick="seekTo(60)"   id="ch2">Section 2</button>
+      <button class="chapter-btn" onclick="seekTo(90)"   id="ch3">Section 3</button>
+      <button class="chapter-btn" onclick="seekTo(120)"  id="ch4">Conclusion</button>
+    </div>
+    <div class="time-row">
+      <div class="progress-wrap" id="progressWrap" onclick="seekFromBar(event)">
+        <div class="progress-fill" id="progressFill"></div>
+        <div class="progress-marker" id="progressMarker"></div>
+      </div>
+      <span class="time-disp" id="timeDisp">0:00 / 0:00</span>
+    </div>
+    <div class="vol-row">
+      <label>🔊 Vol</label>
+      <input type="range" id="volSlider" min="0" max="1" step="0.05" value="1" oninput="setVolume(this.value)">
+      <div class="speed-btns">
+        <button class="speed-btn" onclick="setSpeed(0.75)">0.75×</button>
+        <button class="speed-btn active" id="sp1" onclick="setSpeed(1)">1×</button>
+        <button class="speed-btn" onclick="setSpeed(1.5)">1.5×</button>
+        <button class="speed-btn" onclick="setSpeed(2)">2×</button>
+      </div>
+    </div>
+    <!-- Quiz score tracker -->
+    <div class="score-bar" id="scoreBar" style="display:none;">
+      <span>Quiz progress:</span>
+      <strong id="scoreText">0 / 0 answered</strong>
+      <div class="score-pills" id="scorePills"></div>
+    </div>
+    <!-- Star rating -->
+    <div class="rating-row">
+      <span style="font-size:.82rem;color:var(--muted)">Rate this video:</span>
+      <button class="star-btn" onclick="rateVideo(1)" id="star1">★</button>
+      <button class="star-btn" onclick="rateVideo(2)" id="star2">★</button>
+      <button class="star-btn" onclick="rateVideo(3)" id="star3">★</button>
+      <button class="star-btn" onclick="rateVideo(4)" id="star4">★</button>
+      <button class="star-btn" onclick="rateVideo(5)" id="star5">★</button>
+      <span class="rating-label" id="ratingLabel"></span>
+    </div>
+  </div>
+
+  <!-- JS API EVENT LOG -->
+  <div class="api-demo">
+    <h3>JS Player API — Live Event Log &amp; Controls</h3>
+    <div class="api-row">
+      <button class="api-btn" onclick="p().play()">▶ play()</button>
+      <button class="api-btn" onclick="p().pause()">⏸ pause()</button>
+      <button class="api-btn" onclick="p().currentTime = 0">⏮ seek(0)</button>
+      <button class="api-btn" onclick="logProp('currentTime')">currentTime</button>
+      <button class="api-btn" onclick="logProp('duration')">duration</button>
+      <button class="api-btn" onclick="logProp('paused')">paused?</button>
+      <button class="api-btn" onclick="logProp('muted')">muted?</button>
+      <button class="api-btn" onclick="logProp('volume')">volume</button>
+    </div>
+    <div class="api-log" id="apiLog"><p>Events will appear here as the video plays…</p></div>
+  </div>
+
+  <!-- FEATURES GRID -->
+  <div style="margin-top:60px;">
+    <div class="section-title">All Cloudflare Stream Capabilities</div>
+    <div class="section-sub">Everything you can do — native features and custom-built overlays via the JS API.</div>
+    <div class="features-grid">
+
+      <div class="feat-card">
+        <div class="feat-icon">🎯</div>
+        <h3>Yes / No Quiz</h3>
+        <p>Triggered via <code>timeupdate</code>. A boolean question with two buttons pauses playback and records the user's answer.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🔗</div>
+        <h3>URL Link CTA</h3>
+        <p>A full-screen overlay appears at a chosen timestamp with a branded button linking to an external URL.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">⏸</div>
+        <h3>Pause CTA</h3>
+        <p>When the viewer pauses, a subtle pill overlay with a related link and a Resume button appears.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🏁</div>
+        <h3>End Screen</h3>
+        <p>On the <code>ended</code> event, a full end-card grid appears with up to 4 next-step cards and a replay button.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">📍</div>
+        <h3>Chapter Navigation</h3>
+        <p>Buttons below the player jump to named timestamps using <code>player.currentTime = N</code>.</p>
+        <span class="feat-tag tag-api">JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">💡</div>
+        <h3>Annotation Chips</h3>
+        <p>Small info cards that slide in at specific timestamps — great for labelling scene changes or key facts.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">⭐</div>
+        <h3>Star Rating</h3>
+        <p>A 1–5 star rating control rendered below the player, stored in <code>localStorage</code> for persistence.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">📧</div>
+        <h3>Email Capture</h3>
+        <p>A lead-capture form below (or as an overlay) collects viewer emails — hooks into your CRM or mailing list.</p>
+        <span class="feat-tag tag-custom">Custom via JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🎨</div>
+        <h3>Player Colour Branding</h3>
+        <p>Pass <code>primaryColor</code> and <code>letterboxColor</code> embed params to match your brand identity exactly.</p>
+        <span class="feat-tag tag-native">Native Param</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🔒</div>
+        <h3>Signed URLs</h3>
+        <p>Gate video access with short-lived signed tokens. Set <code>requireSignedURLs</code> and issue JWTs server-side.</p>
+        <span class="feat-tag tag-native">Native Feature</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🌍</div>
+        <h3>Geo / IP Restrictions</h3>
+        <p>Block or allow playback by country (ISO 3166-1) or CIDR range — enforced server-side by Cloudflare.</p>
+        <span class="feat-tag tag-native">Native Feature</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">📺</div>
+        <h3>VAST Ad Insertion</h3>
+        <p>Pass an <code>ad-url</code> VAST tag to the embed to serve pre-roll or mid-roll ads via any ad server.</p>
+        <span class="feat-tag tag-native">Native Param</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">💬</div>
+        <h3>Auto-Generated Captions</h3>
+        <p>AI-generated captions in 12 languages, or upload your own WebVTT file. Toggle with <code>defaultTextTrack</code>.</p>
+        <span class="feat-tag tag-native">Native Feature</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">⚡</div>
+        <h3>Speed Controls</h3>
+        <p>Set <code>player.playbackRate</code> to 0.5×, 0.75×, 1×, 1.5× or 2× for viewer-controlled playback speed.</p>
+        <span class="feat-tag tag-api">JS API</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">🔴</div>
+        <h3>Live Streaming (RTMPS / WebRTC)</h3>
+        <p>Ingest via RTMPS, SRT, or WHIP. Deliver with &lt;1 second latency via WebRTC (WHEP) to unlimited viewers.</p>
+        <span class="feat-tag tag-native">Native Feature</span>
+      </div>
+
+      <div class="feat-card">
+        <div class="feat-icon">📊</div>
+        <h3>Analytics &amp; Webhooks</h3>
+        <p>Per-video minutes delivered, view counts, geo data via dashboard or GraphQL API. Processing webhooks via HMAC.</p>
+        <span class="feat-tag tag-native">Native Feature</span>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- EMAIL CAPTURE CTA BAND -->
+  <div class="cta-band">
+    <h2>Stay up to date</h2>
+    <p>Get notified about new Cloudflare Stream features and tutorials.</p>
+    <form class="email-form" onsubmit="handleEmailSignup(event)">
+      <input type="email" id="emailInput" placeholder="your@email.com" required>
+      <button type="submit">Subscribe →</button>
+    </form>
+    <p id="emailMsg" style="margin-top:14px;font-size:.85rem;color:var(--ok);display:none;">Thanks! You're on the list.</p>
+  </div>
+
+</main>
+
+<!-- ───────────────── FOOTER ───────────────── -->
+<footer>
+  <span>Built with <a href="https://developers.cloudflare.com/stream/" target="_blank">Cloudflare Stream</a> &amp; deployed on <a href="https://netlify.com" target="_blank">Netlify</a></span>
+  <span><a href="https://developers.cloudflare.com/stream/player/javascript-api/" target="_blank">Stream JS API Docs →</a></span>
+</footer>
+
+<!-- Cloudflare Stream SDK -->
+<script data-cfasync="false" defer type="text/javascript"
+  src="https://embed.cloudflarestream.com/embed/sdk.latest.js"></script>
+
+<script>
+/* ─── QUIZ STATE ─── */
+const answers   = {};            // { q1: true/false, q2: true/false }
+const triggered = new Set();     // which overlays have fired
+
+/* ─── CHAPTER DEFINITIONS ─── */
+const chapters = [
+  { id: 'ch0', start:   0, label: 'Intro',       icon: '🎬', text: 'Introduction to Cloudflare Stream' },
+  { id: 'ch1', start:  30, label: 'Section 1',   icon: '📦', text: 'Upload & storage options' },
+  { id: 'ch2', start:  60, label: 'Section 2',   icon: '🎛️', text: 'Player embed parameters' },
+  { id: 'ch3', start:  90, label: 'Section 3',   icon: '⚡', text: 'JavaScript Player API' },
+  { id: 'ch4', start: 120, label: 'Conclusion',  icon: '🏁', text: 'Wrap-up and next steps' },
+];
+
+/* ─── CTA TRIGGER POINTS (as % of total duration) ─── */
+// quiz1 at 25%, cta-link at 50%, quiz2 at 75%
+const CTA_TRIGGERS = [
+  { pct: 0.25, id: 'overlayQuiz1' },
+  { pct: 0.50, id: 'overlayCta'   },
+  { pct: 0.75, id: 'overlayQuiz2' },
+];
+
+/* ─── ANNOTATION TRIGGER POINTS (seconds) ─── */
+const ANNOTATIONS = [
+  { at: 5,   label: 'Intro',      icon: '🎬', text: 'Introduction to Cloudflare Stream' },
+  { at: 32,  label: 'Section 1',  icon: '📦', text: 'Upload &amp; storage options' },
+  { at: 62,  label: 'Section 2',  icon: '🎛️', text: 'Player embed parameters' },
+  { at: 92,  label: 'Section 3',  icon: '⚡', text: 'JavaScript Player API' },
+  { at: 122, label: 'Conclusion', icon: '🏁', text: 'Wrapping up' },
+];
+let annotationTimer = null;
+
+/* ─── HELPER: get player ─── */
+function p() { return document.getElementById('player'); }
+
+/* ─── INIT AFTER SDK LOADS ─── */
+window.addEventListener('load', () => {
+  const player = p();
+  if (!player) return;
+
+  /* ── timeupdate: progress bar + chapter highlight + CTA triggers + annotations ── */
+  player.addEventListener('timeupdate', () => {
+    const ct  = player.currentTime || 0;
+    const dur = player.duration    || 1;
+    const pct = ct / dur;
+
+    // progress bar
+    document.getElementById('progressFill').style.width   = (pct * 100) + '%';
+    document.getElementById('progressMarker').style.left  = (pct * 100) + '%';
+    document.getElementById('timeDisp').textContent       = fmt(ct) + ' / ' + fmt(dur);
+
+    // chapter highlight
+    let active = chapters[0];
+    for (const ch of chapters) { if (ct >= ch.start) active = ch; }
+    chapters.forEach(ch => {
+      const el = document.getElementById(ch.id);
+      if (el) el.classList.toggle('active', ch.id === active.id);
+    });
+
+    // CTA triggers
+    CTA_TRIGGERS.forEach(t => {
+      if (pct >= t.pct && !triggered.has(t.id)) {
+        triggered.add(t.id);
+        player.pause();
+        showOverlay(t.id);
+      }
+    });
+
+    // Annotations
+    ANNOTATIONS.forEach(a => {
+      const key = 'ann_' + a.at;
+      if (ct >= a.at && ct < a.at + 5 && !triggered.has(key)) {
+        triggered.add(key);
+        showAnnotation(a.icon, a.label, a.text);
+      }
+    });
+  });
+
+  /* ── play / pause ── */
+  player.addEventListener('play',  () => { hideOverlay('overlayPause'); addLog('ev', '▶ play'); });
+  player.addEventListener('pause', () => {
+    if (!document.querySelector('.overlay:not(#overlayPause).visible')) {
+      showOverlay('overlayPause');
+    }
+    addLog('ev', '⏸ pause');
+  });
+  player.addEventListener('ended', () => {
+    hideAll();
+    showOverlay('overlayEnd');
+    addLog('ev', '🏁 ended');
+  });
+
+  /* ── other events ── */
+  ['seeking','seeked','loadedmetadata','error','volumechange'].forEach(ev => {
+    player.addEventListener(ev, () => addLog('ev', ev));
+  });
+  player.addEventListener('loadedmetadata', () => {
+    addLog('prop', 'duration = ' + fmt(player.duration));
+  });
+
+  // restore rating
+  const saved = localStorage.getItem('cf_demo_rating');
+  if (saved) highlightStars(parseInt(saved));
+});
+
+/* ─── OVERLAY HELPERS ─── */
+function showOverlay(id) {
+  document.getElementById(id)?.classList.add('visible');
+}
+function hideOverlay(id) {
+  document.getElementById(id)?.classList.remove('visible');
+}
+function hideAll() {
+  document.querySelectorAll('.overlay').forEach(el => el.classList.remove('visible'));
+}
+function dismissOverlay(id) {
+  hideOverlay(id);
+  p().play();
+}
+
+/* ─── QUIZ ─── */
+function answerQuiz(q, val) {
+  answers[q] = val;
+  const num  = q === 'q1' ? '1' : '2';
+  const fb   = document.getElementById('fb' + num);
+  fb.textContent = val
+    ? '✓ Great! The video will continue.'
+    : '✗ No worries — keep watching to learn more.';
+  fb.classList.add('show');
+  updateScoreBar();
+  setTimeout(() => {
+    hideOverlay('overlayQuiz' + num);
+    p().play();
+  }, 1600);
+}
+
+function updateScoreBar() {
+  const bar   = document.getElementById('scoreBar');
+  const text  = document.getElementById('scoreText');
+  const pills = document.getElementById('scorePills');
+  const count = Object.keys(answers).length;
+  bar.style.display = 'flex';
+  text.textContent  = count + ' / 2 answered';
+  pills.innerHTML   = '';
+  ['q1','q2'].forEach(q => {
+    const d = document.createElement('div');
+    d.className = 'score-pill' + (q in answers ? (answers[q] ? ' correct' : ' wrong') : '');
+    pills.appendChild(d);
+  });
+}
+
+/* ─── RESUME ─── */
+function resumePlayer() {
+  hideOverlay('overlayPause');
+  p().play();
+}
+
+/* ─── END SCREEN ─── */
+function replayVideo() {
+  hideAll();
+  triggered.clear();
+  p().currentTime = 0;
+  p().play();
+}
+
+/* ─── ANNOTATION CHIP ─── */
+function showAnnotation(icon, label, text) {
+  const ov = document.getElementById('overlayAnnotation');
+  document.getElementById('annotationLabel').textContent = label;
+  document.getElementById('annotationText').innerHTML    = icon + ' ' + text;
+  clearTimeout(annotationTimer);
+  ov.classList.add('visible');
+  annotationTimer = setTimeout(() => ov.classList.remove('visible'), 4000);
+}
+
+/* ─── CHAPTER SEEK ─── */
+function seekTo(sec) {
+  const player = p();
+  player.currentTime = sec;
+  // re-enable triggers for CTAs after seek (optional: remove to keep them dismissed)
+}
+
+/* ─── PROGRESS BAR CLICK ─── */
+function seekFromBar(e) {
+  const wrap  = document.getElementById('progressWrap');
+  const rect  = wrap.getBoundingClientRect();
+  const pct   = (e.clientX - rect.left) / rect.width;
+  const player = p();
+  player.currentTime = pct * (player.duration || 0);
+}
+
+/* ─── VOLUME ─── */
+function setVolume(val) { p().volume = parseFloat(val); }
+
+/* ─── SPEED ─── */
+function setSpeed(rate) {
+  p().playbackRate = rate;
+  document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
+  event.target.classList.add('active');
+}
+
+/* ─── JS API LOG ─── */
+function addLog(type, msg) {
+  const log = document.getElementById('apiLog');
+  const el  = document.createElement('p');
+  el.className = type;
+  el.textContent = new Date().toLocaleTimeString() + '  →  ' + msg;
+  log.prepend(el);
+  while (log.children.length > 30) log.removeChild(log.lastChild);
+}
+function logProp(prop) {
+  const val = p()[prop];
+  addLog('prop', prop + ' = ' + JSON.stringify(val));
+}
+
+/* ─── STAR RATING ─── */
+function rateVideo(n) {
+  highlightStars(n);
+  localStorage.setItem('cf_demo_rating', n);
+  const labels = ['','Poor','Fair','Good','Very Good','Excellent'];
+  document.getElementById('ratingLabel').textContent = labels[n] + ' (' + n + '/5)';
+}
+function highlightStars(n) {
+  for (let i = 1; i <= 5; i++) {
+    document.getElementById('star' + i).classList.toggle('lit', i <= n);
+  }
+}
+
+/* ─── EMAIL SIGNUP ─── */
+function handleEmailSignup(e) {
+  e.preventDefault();
+  document.getElementById('emailMsg').style.display = 'block';
+  document.getElementById('emailInput').value = '';
+}
+
+/* ─── FORMAT seconds → m:ss ─── */
+function fmt(s) {
+  if (!s || isNaN(s)) return '0:00';
+  const m = Math.floor(s / 60);
+  const sec = Math.floor(s % 60).toString().padStart(2, '0');
+  return m + ':' + sec;
+}
+</script>
+
+</body>
+</html>
