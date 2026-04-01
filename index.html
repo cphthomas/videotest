@@ -427,14 +427,12 @@
   <!-- VIDEO PLAYER + OVERLAYS -->
   <div class="player-shell" id="playerShell">
 
-    <!-- Cloudflare Stream player (iframe + SDK) -->
-    <iframe
+    <!-- Cloudflare Stream — HLS delivered directly via HLS.js for full native API -->
+    <video
       id="player"
-      src="https://customer-bbja5kf9deqpcm9n.cloudflarestream.com/241706818b35416cdd0ddd7f8c0a237a/iframe?controls=true&primaryColor=%23f6821f&preload=metadata"
-      allow="accelerometer; gyroscope; autoplay; encrypted-media; picture-in-picture;"
-      allowfullscreen="true"
-      style="border:none;width:100%;height:100%;display:block;"
-    ></iframe>
+      playsinline
+      style="width:100%;height:100%;display:block;background:#000;"
+    ></video>
 
     <!-- 1. QUIZ OVERLAY (yes / no) -->
     <div class="overlay overlay-quiz" id="overlayQuiz1">
@@ -724,10 +722,12 @@
   <span><a href="https://developers.cloudflare.com/stream/player/javascript-api/" target="_blank">Stream JS API Docs →</a></span>
 </footer>
 
-<!-- Cloudflare Stream SDK -->
-<script src="https://embed.cloudflarestream.com/embed/sdk.latest.js"></script>
+<!-- HLS.js: plays Cloudflare Stream's HLS URL in a native <video> element -->
+<script src="https://cdn.jsdelivr.net/npm/hls.js@latest"></script>
 
 <script>
+const CF_HLS = 'https://customer-bbja5kf9deqpcm9n.cloudflarestream.com/241706818b35416cdd0ddd7f8c0a237a/manifest/video.m3u8';
+
 /* ─── QUIZ STATE ─── */
 const answers   = {};
 const triggered = new Set();
@@ -756,42 +756,35 @@ const ANNOTATIONS = [
 ];
 let annotationTimer = null;
 
-/* ─── SDK player proxy ─── */
-let _player   = null;
-let _duration = 0;       // cached from loadedmetadata — avoids the bogus "1" default
-function p() { return _player; }
+/* ─── Native video element (full API access) ─── */
+function p() { return document.getElementById('player'); }
 
-function initSDK() {
-  const iframe = document.getElementById('player');
-  if (_player || !iframe || !window.Stream) return;
-  _player = Stream(iframe);
-  setupPlayerEvents(_player);
-}
+window.addEventListener('DOMContentLoaded', () => {
+  const video = p();
 
-/* iframe fires 'load' when the Cloudflare player page is ready */
-document.addEventListener('DOMContentLoaded', () => {
-  const iframe = document.getElementById('player');
-  iframe.addEventListener('load', initSDK);
-});
-/* fallback: window load (in case iframe was cached and fires before DOMContentLoaded) */
-window.addEventListener('load', initSDK);
+  /* ── Load Cloudflare Stream via HLS.js ── */
+  if (Hls.isSupported()) {
+    const hls = new Hls({ enableWorker: true });
+    hls.loadSource(CF_HLS);
+    hls.attachMedia(video);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => addLog('ev', 'HLS manifest parsed — ready'));
+  } else if (video.canPlayType('application/vnd.apple.mpegurl')) {
+    // Safari native HLS
+    video.src = CF_HLS;
+  } else {
+    addLog('ev', 'ERROR: HLS not supported in this browser');
+  }
 
-function setupPlayerEvents(player) {
-
-  /* ── cache real duration once metadata arrives ── */
-  player.addEventListener('loadedmetadata', () => {
-    _duration = player.duration;
-    addLog('prop', 'duration = ' + fmt(_duration));
-  });
-  player.addEventListener('durationchange', () => {
-    if (player.duration > 0) _duration = player.duration;
+  /* ── cache duration ── */
+  video.addEventListener('loadedmetadata', () => {
+    addLog('prop', 'duration = ' + fmt(video.duration));
   });
 
-  /* ── timeupdate: progress bar + chapter highlight + CTA triggers + annotations ── */
-  player.addEventListener('timeupdate', () => {
-    const ct  = player.currentTime || 0;
-    const dur = _duration > 0 ? _duration : player.duration;
-    if (!dur || dur <= 0) return;          // not ready yet — skip
+  /* ── timeupdate: progress bar + chapters + CTA triggers + annotations ── */
+  video.addEventListener('timeupdate', () => {
+    const ct  = video.currentTime || 0;
+    const dur = video.duration;
+    if (!dur || isNaN(dur) || dur <= 0) return;
     const pct = ct / dur;
 
     // progress bar
@@ -827,14 +820,14 @@ function setupPlayerEvents(player) {
   });
 
   /* ── play / pause ── */
-  player.addEventListener('play',  () => { hideOverlay('overlayPause'); addLog('ev', '▶ play'); });
-  player.addEventListener('pause', () => {
+  video.addEventListener('play',  () => { hideOverlay('overlayPause'); addLog('ev', '▶ play'); });
+  video.addEventListener('pause', () => {
     if (!document.querySelector('.overlay:not(#overlayPause).visible')) {
       showOverlay('overlayPause');
     }
     addLog('ev', '⏸ pause');
   });
-  player.addEventListener('ended', () => {
+  video.addEventListener('ended', () => {
     hideAll();
     showOverlay('overlayEnd');
     addLog('ev', '🏁 ended');
@@ -842,13 +835,13 @@ function setupPlayerEvents(player) {
 
   /* ── other events ── */
   ['seeking','seeked','error','volumechange'].forEach(ev => {
-    player.addEventListener(ev, () => addLog('ev', ev));
+    video.addEventListener(ev, () => addLog('ev', ev));
   });
 
   // restore rating
   const saved = localStorage.getItem('cf_demo_rating');
   if (saved) highlightStars(parseInt(saved));
-}
+});
 
 /* ─── OVERLAY HELPERS ─── */
 function showOverlay(id) {
@@ -862,7 +855,7 @@ function hideAll() {
 }
 function dismissOverlay(id) {
   hideOverlay(id);
-  p().play();
+  p().play().catch(() => {});
 }
 
 /* ─── QUIZ ─── */
@@ -877,7 +870,7 @@ function answerQuiz(q, val) {
   updateScoreBar();
   setTimeout(() => {
     hideOverlay('overlayQuiz' + num);
-    p().play();
+    p().play().catch(() => {});
   }, 1600);
 }
 
@@ -899,7 +892,7 @@ function updateScoreBar() {
 /* ─── RESUME ─── */
 function resumePlayer() {
   hideOverlay('overlayPause');
-  p().play();
+  p().play().catch(() => {});
 }
 
 /* ─── END SCREEN ─── */
@@ -907,7 +900,7 @@ function replayVideo() {
   hideAll();
   triggered.clear();
   p().currentTime = 0;
-  p().play();
+  p().play().catch(() => {});
 }
 
 /* ─── ANNOTATION CHIP ─── */
@@ -922,26 +915,25 @@ function showAnnotation(icon, label, text) {
 
 /* ─── CHAPTER SEEK ─── */
 function seekTo(sec) {
-  const player = p();
-  if (player) player.currentTime = sec;
+  p().currentTime = sec;
 }
 
 /* ─── PROGRESS BAR CLICK ─── */
 function seekFromBar(e) {
-  const player = p();
-  if (!player || !_duration) return;
+  const video = p();
+  const dur   = video.duration;
+  if (!dur || isNaN(dur)) return;
   const wrap = document.getElementById('progressWrap');
   const rect = wrap.getBoundingClientRect();
-  const pct  = (e.clientX - rect.left) / rect.width;
-  player.currentTime = pct * _duration;
+  video.currentTime = ((e.clientX - rect.left) / rect.width) * dur;
 }
 
 /* ─── VOLUME ─── */
-function setVolume(val) { if (p()) p().volume = parseFloat(val); }
+function setVolume(val) { p().volume = parseFloat(val); }
 
 /* ─── SPEED ─── */
 function setSpeed(rate, btn) {
-  if (p()) p().playbackRate = rate;
+  p().playbackRate = rate;
   document.querySelectorAll('.speed-btn').forEach(b => b.classList.remove('active'));
   if (btn) btn.classList.add('active');
 }
@@ -956,7 +948,6 @@ function addLog(type, msg) {
   while (log.children.length > 30) log.removeChild(log.lastChild);
 }
 function logProp(prop) {
-  if (!p()) { addLog('prop', 'player not ready yet'); return; }
   const val = p()[prop];
   addLog('prop', prop + ' = ' + JSON.stringify(val));
 }
